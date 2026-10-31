@@ -1,0 +1,13 @@
+# Dữ liệu và mô hình để trên Google Drive, không đưa lên GitHub
+data/
+models/
+*.parquet
+*.csv
+!results/*.csv
+spark-warehouse/
+metastore_db/
+derby.log
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+.DS_Store

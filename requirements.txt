@@ -1,0 +1,5 @@
+# PySpark được xử lý riêng trong aitext.spark_utils.ensure_pyspark() (dùng bản có sẵn của Colab nếu hợp lệ)
+gradio
+pandas
+matplotlib
+datasets
