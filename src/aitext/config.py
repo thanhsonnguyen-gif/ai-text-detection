@@ -8,7 +8,21 @@ import os
 # ---- Đường dẫn -------------------------------------------------------------
 # Mỗi thành viên "Add shortcut to My Drive" cho thư mục chung AI-Text-Project,
 # để đường dẫn dưới đây giống nhau trên Colab của cả hai người.
-DRIVE_ROOT = os.environ.get("AITEXT_DRIVE_ROOT", "/content/drive/MyDrive/AI-Text-Project")
+# DRIVE_ROOT = os.environ.get("AITEXT_DRIVE_ROOT", "/content/drive/MyDrive/AI-Text-Project")
+def _find_drive_root():
+    if os.environ.get("AITEXT_DRIVE_ROOT"):
+        return os.environ["AITEXT_DRIVE_ROOT"]
+    candidates = [
+        "/content/drive/MyDrive/BigData_IE212_R11_VB2/AI-Text-Project",  # máy chủ thư mục
+        "/content/drive/MyDrive/AI-Text-Project",                        # shortcut của teammate
+    ]
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    raise FileNotFoundError("Không thấy thư mục AI-Text-Project trên Drive. "
+                            "Kiểm tra đã mount Drive và đã 'Add shortcut to My Drive' chưa.")
+
+DRIVE_ROOT = _find_drive_root()
 
 LOCAL_TMP    = "/content/tmp"                      # ổ tạm của Colab (nhanh, mất khi ngắt phiên)
 RAW_DIR      = f"{LOCAL_TMP}/raw"                  # CSV tải về để ở ổ tạm, KHÔNG để trên Drive
