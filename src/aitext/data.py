@@ -4,6 +4,7 @@ Các hàm prepare_* chỉ chạy MỘT LẦN (notebook 01). Mọi notebook khác
 chung một tập train / val / test.
 """
 import os
+import shutil
 import subprocess
 
 from pyspark.sql import functions as F
@@ -11,6 +12,21 @@ from pyspark.sql import functions as F
 from . import config
 
 COLS = ["id", "source_id", "model", "decoding", "repetition_penalty", "attack", "domain", "generation", "label"]
+
+
+def _write_parquet(df, dest, parts, partition_by=None):
+    """Ghi Parquet ra ổ tạm của Colab trước rồi chép lên Drive.
+
+    Spark ghi thẳng lên Drive (qua FUSE) có thể để lại file rỗng do Drive đồng bộ chậm.
+    """
+    local = f"{config.LOCAL_TMP}/stage/{os.path.basename(dest)}"
+    shutil.rmtree(local, ignore_errors=True)
+    w = df.repartition(parts).write.mode("overwrite")
+    (w.partitionBy(partition_by) if partition_by else w).parquet(local)
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    shutil.copytree(local, dest)
+    shutil.rmtree(local, ignore_errors=True)
 
 
 def download(name="train_none"):
@@ -34,10 +50,7 @@ def _group():
 
 
 def add_split(df):
-    """Gán cột split ∈ {train, val, test} theo hash của source_id.
-
-    Mọi bản (người + AI) của cùng một văn bản gốc nằm trọn trong một tập, nên không rò rỉ chủ đề.
-    """
+    """Gán cột split ∈ {train, val, test} theo hash của source_id (chống rò rỉ chủ đề)."""
     h_test = F.abs(F.hash(_group())) % 100
     h_val = F.abs(F.hash(F.concat_ws("|", _group(), F.lit("val")))) % 100
     return df.withColumn("split", F.when(h_test < config.TEST_PERCENT, "test")
@@ -51,15 +64,14 @@ def prepare_clean_split(spark, csv_path, ai_fraction=None):
     df = df.sampleBy("label", fractions={0: 1.0, 1: ai_fraction}, seed=config.SEED)
     df = add_split(df).select(*COLS, "split").cache()
     for name, path, parts in [("train", config.SPLIT_TRAIN, 16), ("val", config.SPLIT_VAL, 4), ("test", config.SPLIT_TEST, 8)]:
-        df.filter(F.col("split") == name).drop("split").repartition(parts).write.mode("overwrite").parquet(path)
+        _write_parquet(df.filter(F.col("split") == name).drop("split"), path, parts)
     df.unpersist()
 
 
 def prepare_attacked_sample(spark, csv_path, per_attack_fraction=0.02, human_fraction=0.6):
-    """CSV đầy đủ (có tấn công) → chỉ giữ văn bản thuộc tập TEST → lấy mẫu mỗi kiểu tấn công → Parquet.
+    """CSV đầy đủ (có tấn công) → chỉ giữ văn bản thuộc tập TEST → lấy mẫu theo (kiểu tấn công, nhãn) → Parquet.
 
-    Lấy mẫu riêng theo (kiểu tấn công, nhãn): văn bản người hiếm hơn nhiều nên lấy tỷ lệ cao hơn,
-    để FPR khi văn bản người bị tấn công đủ mẫu mà tin được.
+    Văn bản người hiếm hơn nhiều nên lấy tỷ lệ cao hơn, để FPR khi văn bản người bị tấn công đủ mẫu mà tin được.
     """
     df = add_split(read_raid_csv(spark, csv_path)).filter(F.col("split") == "test")
     df = df.filter(F.col("attack") != "none")
@@ -69,7 +81,7 @@ def prepare_attacked_sample(spark, csv_path, per_attack_fraction=0.02, human_fra
         fractions[f"{a}|0"] = human_fraction        # văn bản người
         fractions[f"{a}|1"] = per_attack_fraction   # văn bản AI
     df = df.withColumn("k", key).sampleBy("k", fractions=fractions, seed=config.SEED).drop("k")
-    df.select(*COLS).repartition(16).write.mode("overwrite").partitionBy("attack").parquet(config.ATTACKED_DIR)
+    _write_parquet(df.select(*COLS), config.ATTACKED_DIR, 16, partition_by="attack")
 
 
 def load_splits(spark):
