@@ -55,11 +55,20 @@ def prepare_clean_split(spark, csv_path, ai_fraction=None):
     df.unpersist()
 
 
-def prepare_attacked_sample(spark, csv_path, per_attack_fraction=0.02):
-    """CSV đầy đủ (có tấn công) → chỉ giữ văn bản thuộc tập TEST → lấy mẫu mỗi kiểu tấn công → Parquet."""
+def prepare_attacked_sample(spark, csv_path, per_attack_fraction=0.02, human_fraction=0.6):
+    """CSV đầy đủ (có tấn công) → chỉ giữ văn bản thuộc tập TEST → lấy mẫu mỗi kiểu tấn công → Parquet.
+
+    Lấy mẫu riêng theo (kiểu tấn công, nhãn): văn bản người hiếm hơn nhiều nên lấy tỷ lệ cao hơn,
+    để FPR khi văn bản người bị tấn công đủ mẫu mà tin được.
+    """
     df = add_split(read_raid_csv(spark, csv_path)).filter(F.col("split") == "test")
     df = df.filter(F.col("attack") != "none")
-    df = df.sampleBy("attack", fractions={a: per_attack_fraction for a in config.RAID_ATTACKS}, seed=config.SEED)
+    key = F.concat_ws("|", F.col("attack"), F.col("label").cast("string"))
+    fractions = {}
+    for a in config.RAID_ATTACKS:
+        fractions[f"{a}|0"] = human_fraction        # văn bản người
+        fractions[f"{a}|1"] = per_attack_fraction   # văn bản AI
+    df = df.withColumn("k", key).sampleBy("k", fractions=fractions, seed=config.SEED).drop("k")
     df.select(*COLS).repartition(16).write.mode("overwrite").partitionBy("attack").parquet(config.ATTACKED_DIR)
 
 
