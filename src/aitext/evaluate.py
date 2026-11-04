@@ -12,11 +12,17 @@ from . import config
 _auc = BinaryClassificationEvaluator(labelCol="label", rawPredictionCol="score", metricName="areaUnderROC")
 
 
-def score(model, df, text_col):
-    """Chấm điểm. text_col: biểu thức cột văn bản đưa vào mô hình (gốc / bị tấn công / đã chuẩn hóa)."""
+def score(model, df, text_col, logodds=False):
+    """Chấm điểm. text_col: biểu thức cột văn bản đưa vào mô hình (gốc / bị tấn công / đã chuẩn hóa).
+    logodds=True: điểm = log-odds từ rawPrediction thay cho xác suất. Dùng cho Naive Bayes: xác suất
+    của NB bão hòa đúng 1,0 (E4: 27% văn bản người trên val) làm ngưỡng FPR 5% thành 1,0 và TPR = 0."""
     out = model.transform(df.withColumn("text_in", text_col))
-    return out.withColumn("score", vector_to_array("probability")[1]).select(
-        "label", "model", "domain", "attack", "decoding", "score")
+    if logodds:
+        raw = vector_to_array("rawPrediction")
+        s = raw[1] - raw[0]
+    else:
+        s = vector_to_array("probability")[1]
+    return out.withColumn("score", s).select("label", "model", "domain", "attack", "decoding", "score")
 
 
 def thr_at_fpr(pred, fpr=None):
@@ -33,10 +39,12 @@ def auroc(pred):
     return _auc.evaluate(pred) if pred.select("label").distinct().count() == 2 else float("nan")
 
 
-def metrics(pred, thr=None):
-    """AUROC; TPR/FPR tại ngưỡng vận hành `thr` (lấy từ validation); FPR@0.5; và TPR@FPR5% kiểu RAID."""
+def metrics(pred, thr=None, boundary=0.5):
+    """AUROC; TPR/FPR tại ngưỡng vận hành `thr` (lấy từ validation); FPR tại ranh giới mặc định; TPR@FPR5% kiểu RAID.
+    boundary: ranh giới mặc định của bộ phân loại — 0,5 với xác suất, 0 với log-odds (tương đương p = 0,5).
+    Cột kết quả vẫn tên "fpr_at_0.5" để các bảng cũ không đổi."""
     pred = pred.cache()
-    res = {"auroc": auroc(pred), "fpr_at_0.5": rate_above(pred, 0, 0.5),
+    res = {"auroc": auroc(pred), "fpr_at_0.5": rate_above(pred, 0, boundary),
            "tpr_at_fpr_oracle": rate_above(pred, 1, thr_at_fpr(pred)), "n": pred.count()}
     if thr is not None:
         res.update({"threshold": thr, "tpr": rate_above(pred, 1, thr), "fpr": rate_above(pred, 0, thr)})
