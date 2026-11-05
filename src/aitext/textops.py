@@ -12,14 +12,24 @@ LATIN = "aeopcxyiAEOPCXHKMTB"
 CYRIL = ("аеорсхуі"
          "АЕОРСХНКМТВ")
 assert len(LATIN) == len(CYRIL)
+
+# Chuẩn hóa v2 (05/11): thêm các ký tự giả dạng mà bộ sinh tấn công homoglyph của RAID dùng nhưng v1 bỏ sót
+# (nguồn: liamdugan/raid, generation/adversarial/attackers/homoglyph.py). Gồm 13 chữ HOA Hy Lạp + Cyrillic "І" hoa.
+# v1 bỏ sót vì F.lower biến chúng thành chữ thường Hy Lạp (Α → α), không phải Latin.
+EXTRA_FROM = "\u0391\u0392\u0395\u039a\u039f\u03a1\u039c\u0397\u03a4\u03a7\u0406\u0399\u039d\u0396"
+EXTRA_TO   = "ABEKOPMHTXIINZ"
+assert len(EXTRA_FROM) == len(EXTRA_TO)
+NORM_MAP = {1: (CYRIL, LATIN), 2: (CYRIL + EXTRA_FROM, LATIN + EXTRA_TO)}
 ZW_CLASS = "[​‌‍⁠﻿]"
 
 
 # ---------------- Spark ----------------
-def normalize(c):
-    """Phòng thủ: xóa ký tự vô hình, Cyrillic giống Latin -> Latin, gom khoảng trắng, chữ thường."""
+def normalize(c, version=1):
+    """Phòng thủ: xóa ký tự vô hình, ký tự giả dạng -> Latin, gom khoảng trắng, chữ thường.
+    version=1: 19 ký tự Cyrillic (kết quả chính E1–E4). version=2: thêm chữ HOA Hy Lạp + Cyrillic І (E2b)."""
+    src, dst = NORM_MAP[version]
     c = F.regexp_replace(c, ZW_CLASS, "")
-    c = F.translate(c, CYRIL, LATIN)
+    c = F.translate(c, src, dst)
     c = F.regexp_replace(c, r"\s+", " ")
     return F.lower(F.trim(c))
 

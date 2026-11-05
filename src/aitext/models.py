@@ -30,14 +30,14 @@ def build_pipeline(clf="lr", reg_param=None, num_features=None):
     return Pipeline(stages=[tok, bi, tf1, tf2, idf1, idf2, vec, model])
 
 
-def text_col(defended):
-    """Cột đầu vào: văn bản gốc (baseline) hoặc đã chuẩn hóa (defended)."""
+def text_col(defended, norm_version=1):
+    """Cột đầu vào: văn bản gốc (baseline) hoặc đã chuẩn hóa (defended, chuẩn hóa phiên bản norm_version)."""
     g = F.col("generation")
-    return normalize(g) if defended else g
+    return normalize(g, norm_version) if defended else g
 
 
-def fit(train_df, defended, clf="lr", reg_param=None):
-    return build_pipeline(clf, reg_param).fit(train_df.withColumn("text_in", text_col(defended)))
+def fit(train_df, defended, clf="lr", reg_param=None, norm_version=1):
+    return build_pipeline(clf, reg_param).fit(train_df.withColumn("text_in", text_col(defended, norm_version)))
 
 
 def save(model, name):
